@@ -1,0 +1,72 @@
+#include "Particle.h"
+
+// Library for HDC1008
+#include <Adafruit_HDC1000.h>
+
+// Set system mode to semi automatic which will call setup without trying to connect to the mesh-network
+SYSTEM_MODE(SEMI_AUTOMATIC);
+// Set system thread to enabled for to allow the user to publish and subscribe code to continue even if you’re 
+//disconnected the gateway from the Internet or even turned the gateway off. 
+SYSTEM_THREAD(ENABLED);
+
+#define ZZZ 900        // seconds of SLEEP  900 = 15 minutes
+#define PUBTIME 6000  // millisecs of publish waiting
+
+// Need this to turn on Backup SRAM
+STARTUP(System.enableFeature(FEATURE_RETAINED_MEMORY));
+
+// retained variables in Backup SRAM still available after SLEEP mode
+retained float humidity = 0, tempC = 0, tempF = 0, mintemp = 77, maxtemp = 32;
+
+// new instance
+Adafruit_HDC1000 hdc = Adafruit_HDC1000();
+
+void setup() {
+ 
+    // Set serial communication for debugging
+	Serial.begin(9600);
+	
+    // Set bit ANSTW1 and ANSTW2 for use of PCB antenna
+    digitalWrite(ANTSW1, 1);
+    digitalWrite(ANTSW1, 0);
+    
+    // Connect to the mesh network
+    Mesh.connect();
+    // Wait for the mesh to be connected and reset device if connection is not established
+    delay(5000);
+    if(Mesh.connecting()){
+        
+    } else{
+        System.reset();
+    }
+    
+    hdc.begin();
+    delay(25);        // let the chip initialize
+}
+
+void loop() {
+    ++count ;                         // get reading every 15 min, publish hourly
+  tempC = hdc.readTemperature() ;  // Celsius
+  tempF = (tempC * 1.8) + 32 ;    // Fahrenheit
+  humidity = hdc.readHumidity() ;
+  battery = analogRead(BATT) * 0.0011224;;
+
+  if (tempF > maxtemp)  maxtemp = tempF;
+  if (tempF < mintemp)  mintemp = tempF;
+
+  if (count == 4) {
+    count = 0;      // will publish every 4th wakeup
+    ++HoursAlive;  // increment another hour
+
+    // format string does not work unless quotes escaped: \"
+    // key needs quotes around it for ThingSpeak
+    sprintf(json,"{\"1\":%i,\"2\":%u,\"3\":%.1f,\"4\":%.1f,\"5\":%.1f,\"6\":%.1f,\"k\":\"%s\"}",
+      batteryLOW,HoursAlive,humidity,maxtemp,mintemp,tempF,key);
+
+    // Publish results to Mesh
+    Mesh.publish("Endnote", json, PRIVATE);
+    spinWait(PUBTIME);   // wait some time to publish
+  }
+  System.sleep(D2, RISING, ZZZ);    // go to sleep and wake up if timer or rising pin
+}
+
